@@ -1,0 +1,46 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.11/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/daniel/Desktop/code/产品精算/hb-product-agent
+plugins: anyio-4.9.0, langsmith-0.6.4, timeout-2.4.0
+collecting ... collected 134 items
+
+test/test_chat.py::TestChatSend::test_send_new_session PASSED            [  0%]
+test/test_chat.py::TestChatSend::test_send_with_existing_session PASSED  [  1%]
+test/test_chat.py::TestChatSend::test_send_empty_message FAILED          [  2%]
+test/test_chat.py::TestChatSend::test_send_long_message PASSED           [  2%]
+test/test_chat.py::TestChatSend::test_send_special_chars PASSED          [  3%]
+test/test_chat.py::TestChatSend::test_send_chinese_punctuation PASSED    [  4%]
+test/test_chat.py::TestChatSend::test_send_invalid_session_id PASSED     [  5%]
+test/test_chat.py::TestChatSend::test_send_missing_message_field PASSED  [  5%]
+test/test_chat.py::TestChatSend::test_send_message_type_none PASSED      [  6%]
+test/test_chat.py::TestChatSend::test_send_wrong_content_type PASSED     [  7%]
+test/test_chat.py::TestChatStream::test_send_stream_returns_data PASSED  [  8%]
+test/test_chat.py::TestChatHistory::test_get_history_exists FAILED       [  8%]
+test/test_chat.py::TestChatHistory::test_get_history_not_found PASSED    [  9%]
+test/test_chat.py::TestChatHistory::test_get_history_empty_session PASSED [ 10%]
+test/test_chat.py::TestChatHistory::test_history_contains_extracted_needs PASSED [ 11%]
+test/test_chat.py::TestChatHistory::test_history_method_post_not_allowed PASSED [ 11%]
+test/test_chat.py::TestChatMultiRound::test_multi_round_consistency FAILED [ 12%]
+test/test_chat.py::TestChatMultiRound::test_history_grows_with_messages PASSED [ 13%]
+test/test_database.py::TestServiceModel::test_create_service PASSED      [ 14%]
+test/test_database.py::TestServiceModel::test_service_name_required PASSED [ 14%]
+test/test_database.py::TestServiceModel::test_service_cost_price_decimal PASSED [ 15%]
+test/test_database.py::TestServiceModel::test_service_unique_id PASSED   [ 16%]
+test/test_database.py::TestServiceModel::test_service_default_create_time PASSED [ 17%]
+test/test_database.py::TestGeneratedSchemeModel::test_create_scheme PASSED [ 17%]
+test/test_database.py::TestGeneratedSchemeModel::test_scheme_status_values PASSED [ 18%]
+test/test_database.py::TestGeneratedSchemeModel::test_scheme_json_field PASSED [ 19%]
+test/test_database.py::TestGeneratedSchemeModel::test_scheme_total_cost_quote PASSED [ 20%]
+test/test_database.py::TestConversationModel::test_create_conversation PASSED [ 20%]
+test/test_database.py::TestConversationModel::test_conversation_session_unique PASSED [ 21%]
+test/test_database.py::TestConversationModel::test_conversation_default_status PASSED [ 22%]
+test/test_database.py::TestGeneratedManualModel::test_create_manual PASSED [ 23%]
+test/test_database.py::TestServiceManualTemplateModel::test_create_template PASSED [ 23%]
+test/test_database.py::TestServiceManualTemplateModel::test_template_sort_order_default PASSED [ 24%]
+test/test_database.py::TestDatabaseRelations::test_scheme_conversation_relation PASSED [ 25%]
+test/test_database.py::TestDatabaseRelations::test_manual_scheme_relation PASSED [ 26%]
+test/test_database.py::TestDatabaseCRUD::test_update_service PASSED      [ 26%]
+test/test_database.py::TestDatabaseCRUD::test_delete_service PASSED      [ 27%]
+test/test_database.py::TestDatabaseCRUD::test_query_filter PASSED        [ 28%]
+test/test_full_flow.py::TestCompleteFlow::test_flow_chat_to_manual 

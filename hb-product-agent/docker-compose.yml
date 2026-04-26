@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hb-agent-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_TYPE=mysql
+      - DB_URL=mysql+pymysql://${DB_USER:-root}:${DB_PASSWORD:-root}@seekdb:2881/${DB_NAME:-hb_agent}
+      - BAILIAN_API_KEY=${BAILIAN_API_KEY}
+      - BAILIAN_APP_ID=${BAILIAN_APP_ID}
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/generated_manuals:/app/generated_manuals
+    depends_on:
+      - seekdb
+    networks:
+      - hb-agent-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hb-agent-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - hb-agent-net
+
+  seekdb:
+    image: oceanbase/seekdb:latest
+    container_name: hb-agent-seekdb
+    ports:
+      - "2881:2881"
+    environment:
+      - SEEKDB_ROOT_PASSWORD=${DB_PASSWORD:-root}
+    volumes:
+      - seekdb_data:/var/lib/seekdb
+    networks:
+      - hb-agent-net
+
+volumes:
+  seekdb_data:
+
+networks:
+  hb-agent-net:
+    driver: bridge

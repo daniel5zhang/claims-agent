@@ -1,0 +1,34 @@
+# SeekDB data
+seekdb_data/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# SQLite
+test.db
+hb_agent.db
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports
+report.html
+test_output.txt
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/

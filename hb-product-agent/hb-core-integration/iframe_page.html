@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>产品 Agent</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    .iframe-container {
+      width: 100%;
+      height: 100vh;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    此页面用于在 hb_core 中通过 iframe 嵌入产品 Agent 前端
+    请将 src 替换为实际部署的 Vue 前端地址
+  -->
+  <iframe
+    id="agentFrame"
+    class="iframe-container"
+    src="http://localhost:5173"
+    allow="fullscreen"
+  ></iframe>
+
+  <script>
+    // 可选：从 hb_core 传递 token 给 iframe
+    // 方式1: URL 参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+      const iframe = document.getElementById('agentFrame');
+      const currentSrc = iframe.src;
+      iframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+    }
+
+    // 方式2: postMessage
+    window.addEventListener('message', function(e) {
+      // 接收 iframe 内消息
+      console.log('Message from iframe:', e.data);
+    });
+  </script>
+</body>
+</html>

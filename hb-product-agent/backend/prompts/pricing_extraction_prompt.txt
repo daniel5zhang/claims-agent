@@ -1,0 +1,75 @@
+## 角色
+你是一位保险精算分析师，擅长从健康管理服务方案中提取定价方法论和定价规则。
+
+## 任务
+分析以下历史方案，提取其定价逻辑和可复用的定价规则。
+
+## 历史方案数据
+
+方案名称: {scheme_name}
+客户: {customer_name}
+总价: {total_price}
+来源文件: {source_file}
+
+服务清单 ({item_count} 项):
+{service_items_table}
+
+## 定价数据（规则引擎预分析）
+{rule_pre_analysis}
+
+## 请输出 JSON（严格按以下格式）
+
+{{
+  "pricing_method": "cost_plus|market_benchmark|hybrid|tiered",
+  "method_confidence": 0.0-1.0,
+  "logic_description": "用一段话（200-400字）完整描述这个方案的定价方法论，包括：定价基础是什么？利润率大概多少？为什么这样定价？面向什么客户？",
+  "tier_design_logic": "如果有多档位，描述档位是如何设计的：价格递增逻辑是什么？每档增加什么类型的服务？",
+  "service_role_mapping": [
+    {{
+      "name": "服务名称",
+      "role": "traffic_hook|profit_center|value_add|filler",
+      "reason": "简短原因"
+    }}
+  ],
+  "pricing_rules": [
+    {{
+      "category": "markup|tiering|rounding|selection|discount",
+      "rule_name": "规则名称（简短）",
+      "rule_expression": "规则表达式或文字描述",
+      "params": {{"key": "value"}}
+    }}
+  ],
+  "margin_estimate": {{
+    "min": 0.10,
+    "max": 0.25,
+    "avg": 0.17,
+    "confidence": 0.8,
+    "method": "如何估算的"
+  }},
+  "pricing_params_suggestion": {{
+    "margin_rate": 0.15,
+    "package_discount": 0.90,
+    "rounding_rule": "round_yuan",
+    "channel_coeff": 1.0
+  }},
+  "special_considerations": ["特殊定价考量1", "特殊定价考量2"]
+}}
+
+## 定价方法定义
+- cost_plus: 成本加成法 — 有明确的成本基准，加固定利润率
+- market_benchmark: 市场对标法 — 参考市场价格/竞品定价
+- hybrid: 混合法 — 部分服务成本加成，部分市场对标
+- tiered: 阶梯定价 — 按档位递增，每档有明确的服务门槛和价格区间
+
+## 服务角色定义
+- traffic_hook: 引流钩子 — 低价高频刚需服务，吸引客户
+- profit_center: 利润中心 — 高利润率服务，贡献主要利润
+- value_add: 增值服务 — 提升方案感知价值，中低利润率
+- filler: 填充服务 — 边际成本极低的服务，增加方案"丰富度"
+
+## 定价规则分类
+- markup: 加成规则 — 利润率、加成比例
+- tiering: 档位规则 — 档位递增逻辑、价格梯度
+- rounding: 取整规则 — 报价取整方式
+- selection: 选择规则 — 服务挑选逻辑（哪些进低档、哪些进高档）
+- discount: 折扣规则 — 打包折扣、批量折扣

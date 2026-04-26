@@ -1,0 +1,33 @@
+npm warn Unknown user config "ignore-engines". This will stop working in the next major version of npm.
+
+> hb-product-agent-frontend@1.0.0 dev
+> vite --host 0.0.0.0 --port 5173
+
+
+  VITE v5.4.21  ready in 191 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://10.0.110.70:5173/
+  ➜  Network: http://192.168.64.1:5173/
+  ➜  Network: http://2.0.1.33:5173/
+  ➜  press h + enter to show help
+DEPRECATION WARNING [legacy-js-api]: The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.
+
+More info: https://sass-lang.com/d/legacy-js-api
+
+DEPRECATION WARNING [legacy-js-api]: The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.
+
+More info: https://sass-lang.com/d/legacy-js-api
+
+DEPRECATION WARNING [legacy-js-api]: The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.
+
+More info: https://sass-lang.com/d/legacy-js-api
+
+DEPRECATION WARNING [legacy-js-api]: The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.
+
+More info: https://sass-lang.com/d/legacy-js-api
+
+DEPRECATION WARNING [legacy-js-api]: The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.
+
+More info: https://sass-lang.com/d/legacy-js-api
+

@@ -1,0 +1,17 @@
+从以下销售对话中提取客户需求信息。如果某项信息未提及，返回 null。
+
+请严格按以下 JSON 格式返回：
+{
+  "target_group": "目标人群（如：企业职工、车险车主、银行小微客户）",
+  "budget_range": "预算区间（如：20-30元/人、80-100元/人）",
+  "budget_unit": "预算单位（per_person=每人/每卡，total=总预算，unknown=未明确）",
+  "service_preferences": ["偏好服务1", "偏好服务2"],
+  "scene": "使用场景（如：随车健管、职工福利、防癌抗癌、重疾绿通）",
+  "scale": "保单规模（如：5万单、10万单）",
+  "channel": "渠道类型（如：财险随车、银行渠道、团险）",
+  "special_requirements": "特殊要求",
+  "needs_complete": false
+}
+
+needs_complete 表示需求是否已收集完整（目标人群、预算、场景三个关键字段至少都有值，且预算为明确数字区间，且 budget_unit 不为 unknown）。
+如果用户说了预算数字但没有明确是每人预算还是总预算，budget_unit 设为 unknown，needs_complete 必须为 false，表示还需要追问确认。
