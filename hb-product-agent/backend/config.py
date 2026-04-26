@@ -27,7 +27,8 @@ SEEKDB_DB = os.getenv("SEEKDB_DB", "product_agent")
 
 # --- 应用 ---
 APP_DEBUG = os.getenv("APP_DEBUG", "true").lower() == "true"
-APP_PORT = int(os.getenv("APP_PORT", "8000"))
+APP_PORT = int(os.getenv("APP_PORT", "18080"))
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:18080")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
 # --- 模板 & 输出目录 ---
@@ -56,3 +57,9 @@ TEXT_MODELS = {
 MULTIMODAL_MODELS = {
     "qwen-vl-plus", "qwen-vl-max", "qwen3-vl-plus",
 }
+
+# ============ 钉钉机器人配置 ============
+DINGTALK_CLIENT_ID = os.getenv("DINGTALK_CLIENT_ID", "")
+DINGTALK_CLIENT_SECRET = os.getenv("DINGTALK_CLIENT_SECRET", "")
+DINGTALK_ROBOT_CODE = os.getenv("DINGTALK_ROBOT_CODE", "")
+DINGTALK_ENABLED = os.getenv("DINGTALK_ENABLED", "false").lower() == "true"

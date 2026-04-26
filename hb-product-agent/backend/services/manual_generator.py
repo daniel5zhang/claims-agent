@@ -21,8 +21,10 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-from database import GeneratedScheme, Service, GeneratedManual
+from database import GeneratedScheme, Service, GeneratedManual, Conversation
 from config import TEMPLATES_DIR, OUTPUT_MANUALS_DIR
+from services.output_naming import build_output_base_name, make_output_filename
+from services.scheme_payload_resolver import resolve_generation_scope
 
 logger = logging.getLogger("manual_generator")
 
@@ -55,7 +57,11 @@ class ManualGenerator:
     # ========== 主入口 ==========
 
     def generate_manual(
-        self, db: Session, scheme_id: int
+        self,
+        db: Session,
+        scheme_id: int,
+        selected_scheme_name: str | None = None,
+        selected_scheme_index: int | None = None,
     ) -> Tuple[Optional[GeneratedManual], List[str]]:
         """
         根据方案生成服务手册 docx
@@ -69,8 +75,13 @@ class ManualGenerator:
         if scheme.status != "confirmed":
             raise ValueError("方案未确认，无法生成服务手册")
 
-        # 解析方案服务列表
-        scheme_services = self._parse_scheme_services(scheme)
+        # 解析方案服务列表（与 Excel 共用同一取值对象）
+        scope = resolve_generation_scope(
+            scheme.service_list_json,
+            selected_scheme_name=selected_scheme_name,
+            selected_scheme_index=selected_scheme_index,
+        )
+        scheme_services = [dict(s) for s in scope["services_with_scheme"]]
         if not scheme_services:
             raise ValueError("方案中无服务项，无法生成服务手册")
 
@@ -84,10 +95,13 @@ class ManualGenerator:
         ).count()
         version = existing_count + 1
 
-        # 生成文件名
-        safe_name = self._safe_filename(scheme.scheme_name or "方案")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{safe_name}_v{version}_{timestamp}.docx"
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == scheme.conversation_id)
+            .first()
+        )
+        base_name = build_output_base_name(scheme, conversation)
+        filename = make_output_filename(base_name, version, "docx")
         filepath = os.path.join(self.output_dir, filename)
 
         # 构建文档
@@ -256,45 +270,57 @@ class ManualGenerator:
             title_run.font.name = FONT_FAMILY
             title_run._element.rPr.rFonts.set(qn("w:eastAsia"), FONT_FAMILY)
 
+            scheme_group = str(svc.get("_scheme_group", "")).strip()
+            if scheme_group:
+                self._add_field_line(doc, "所属方案", scheme_group)
+
             # 服务描述
             description = svc.get("content") or (db_svc.description if db_svc else "")
             if description:
+                description = str(description)
                 p = doc.add_paragraph(description)
                 p.style = doc.styles["Normal"]
 
             # ── 服务时间 ──
             svc_time = svc.get("service_time") or (db_svc.service_time if db_svc else "")
             if svc_time:
+                svc_time = str(svc_time)
                 self._add_field_line(doc, "服务时间", svc_time)
 
             # ── 服务时效 ──
             svc_resp = svc.get("service_response_time") or (db_svc.service_response_time if db_svc else "")
             if svc_resp:
+                svc_resp = str(svc_resp)
                 self._add_field_line(doc, "服务时效", svc_resp)
 
             # ── 服务频次 ──
             times = svc.get("times") or (db_svc.times if db_svc else "")
             if times:
+                times = str(times)
                 self._add_field_line(doc, "服务频次", times)
 
             # ── 启动条件 ──
             condition = svc.get("condition") or (db_svc.condition if db_svc else "")
             if condition:
+                condition = str(condition)
                 self._add_field_line(doc, "启动条件", condition)
 
             # ── 服务标准 ──
             standard = svc.get("standard") or (db_svc.service_standard if db_svc else "")
             if standard:
+                standard = str(standard)
                 self._add_field_line(doc, "服务标准", standard)
 
             # ── 服务网络 ──
             network = svc.get("network") or (db_svc.service_network if db_svc else "")
             if network:
+                network = str(network)
                 self._add_field_line(doc, "服务网络", network)
 
             # ── 服务流程 ──
             process = (db_svc.process if db_svc else "")
             if process:
+                process = str(process)
                 self._add_field_line(doc, "服务流程", "")
                 steps = process.strip().split("\n")
                 for step_idx, step in enumerate(steps, 1):
@@ -306,6 +332,7 @@ class ManualGenerator:
             # ── 特别说明 ──
             notes = svc.get("special_notes") or (db_svc.special_notes if db_svc else "")
             if notes:
+                notes = str(notes)
                 self._add_field_line(doc, "特别说明", "")
                 for note_line in notes.strip().split("\n"):
                     note_line = note_line.strip()
@@ -316,6 +343,10 @@ class ManualGenerator:
             # ── 价格参考 ──
             cost = svc.get("cost_price") or svc.get("cost") or ""
             quote = svc.get("quote_price") or svc.get("price") or svc.get("quote") or ""
+            if cost:
+                cost = str(cost)
+            if quote:
+                quote = str(quote)
             if cost or quote:
                 parts = []
                 if cost:
@@ -392,43 +423,9 @@ class ManualGenerator:
             return f.read()
 
     def _parse_scheme_services(self, scheme: GeneratedScheme) -> List[Dict[str, Any]]:
-        """从 GeneratedScheme 解析服务列表，合并所有方案的服务"""
-        services = []
-        if not scheme.service_list_json:
-            return services
-
-        try:
-            parsed = json.loads(scheme.service_list_json)
-        except (json.JSONDecodeError, TypeError):
-            return services
-
-        if isinstance(parsed, dict):
-            # 多方案：从 schemes 数组中收集所有服务
-            schemes = parsed.get("schemes", [])
-            if schemes:
-                seen = set()
-                for sch in schemes:
-                    if not isinstance(sch, dict):
-                        continue
-                    sch_name = sch.get("scheme_name", "")
-                    for svc in sch.get("services", []) or []:
-                        if not isinstance(svc, dict):
-                            logger.warning(f"[_parse_scheme_services] 跳过非dict服务项: {str(svc)[:80]}")
-                            continue
-                        name = svc.get("name", "")
-                        if name and name not in seen:
-                            seen.add(name)
-                            svc_copy = dict(svc)
-                            if sch_name:
-                                svc_copy["_scheme_group"] = sch_name
-                            services.append(svc_copy)
-            # 兼容单方案：顶层 services
-            if not services:
-                services = [s for s in (parsed.get("services", []) or []) if isinstance(s, dict)]
-        elif isinstance(parsed, list):
-            services = [s for s in parsed if isinstance(s, dict)]
-
-        return services
+        """从 GeneratedScheme 解析服务列表（默认返回全量范围）"""
+        scope = resolve_generation_scope(scheme.service_list_json)
+        return [dict(s) for s in scope["services_with_scheme"]]
 
     def _match_services(
         self,

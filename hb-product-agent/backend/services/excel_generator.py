@@ -7,67 +7,43 @@ Excel 报价单生成器
 import json
 import os
 import re
-from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
-from database import GeneratedScheme, GeneratedExcel, Service
+from database import GeneratedScheme, GeneratedExcel, Service, Conversation
+from services.output_naming import build_output_base_name, make_output_filename
+from services.scheme_payload_resolver import resolve_generation_scope
 
 
 class ExcelGenerator:
     """生成方案报价单 Excel"""
 
-    def generate_excel(self, db: Session, scheme_id: int):
+    def generate_excel(
+        self,
+        db: Session,
+        scheme_id: int,
+        selected_scheme_name: str | None = None,
+        selected_scheme_index: int | None = None,
+    ):
         scheme = db.query(GeneratedScheme).filter(GeneratedScheme.id == scheme_id).first()
         if not scheme:
             raise ValueError("方案不存在")
 
-        # 解析服务清单（健壮解析：兼容 dict/list/str 多种格式）
-        service_list = []
-        schemes_list = []  # 多方案数据
-        if scheme.service_list_json:
-            try:
-                parsed = json.loads(scheme.service_list_json)
-                if isinstance(parsed, dict):
-                    service_list = parsed.get("services", []) or []
-                    schemes_list = parsed.get("schemes", []) or []
-                elif isinstance(parsed, list):
-                    service_list = parsed
-            except (json.JSONDecodeError, TypeError):
-                service_list = []
-
-        # 确保 service_list 是 list 且每个元素是 dict
-        service_list = [s for s in service_list if isinstance(s, dict)]
-        # 确保 schemes_list 中每个方案的 services 是有效 list
-        for sch in schemes_list:
-            if isinstance(sch, dict):
-                if "services" in sch:
-                    sch["services"] = [s for s in sch["services"] if isinstance(s, dict)]
-                elif "service_list" in sch:
-                    # 兼容 LLM 可能使用 service_list 而非 services 的情况
-                    sch["services"] = [s for s in sch["service_list"] if isinstance(s, dict)]
-
-        # 修复：如果第一个方案的 services 为空但顶层 service_list 有数据，则补全
-        if schemes_list and isinstance(schemes_list[0], dict):
-            first_svc = schemes_list[0].get("services", [])
-            if not first_svc and service_list:
-                schemes_list[0]["services"] = service_list
-
-        # 汇总所有方案的服务用于服务清单 Sheet（按方案分组展示）
+        scope = resolve_generation_scope(
+            scheme.service_list_json,
+            selected_scheme_name=selected_scheme_name,
+            selected_scheme_index=selected_scheme_index,
+        )
+        selected_schemes = scope["selected_schemes"]
         all_services_with_scheme = []
-        if schemes_list:
-            for sch in schemes_list:
-                if isinstance(sch, dict):
-                    sch_name = sch.get("scheme_name", "")
-                    for svc in sch.get("services", []):
-                        if isinstance(svc, dict):
-                            all_services_with_scheme.append({"scheme": sch_name, **svc})
-        if not all_services_with_scheme:
-            # 如果 schemes 为空，用顶层 service_list（单方案模式）
-            all_services_with_scheme = [{"scheme": "", **s} for s in service_list]
+        for svc in scope["services_with_scheme"]:
+            all_services_with_scheme.append(
+                {"scheme": svc.get("_scheme_group", ""), **svc}
+            )
+        service_list = [dict(s) for s in scope["services_with_scheme"]]
 
         # 查询素材库补充详细信息
         db_services = {s.name: s for s in db.query(Service).all()}
@@ -103,7 +79,7 @@ class ExcelGenerator:
 
         # 表头（参考海峡随车Excel Sheet1）
         # 多方案时增加"方案档位"列，单方案时不加
-        has_multi = any(s.get("scheme") for s in all_services_with_scheme)
+        has_multi = scope["has_multi"]
         headers1 = ["序号"]
         if has_multi:
             headers1.append("方案档位")
@@ -176,9 +152,9 @@ class ExcelGenerator:
         ws1.column_dimensions[cost_col].width = 14
 
         # ========== 方案内容 Sheet（支持多方案） ==========
-        if schemes_list:
+        if selected_schemes:
             # 多方案：每个方案一个 Sheet
-            for sch_idx, sch in enumerate(schemes_list):
+            for sch_idx, sch in enumerate(selected_schemes):
                 sch_name = sch.get("scheme_name", f"方案{sch_idx + 1}")
                 # Sheet 名称最长31字符，且不能含 \ / * ? [ ] :
                 sheet_title = re.sub(r"[\\/*?:\[\]]", "", sch_name)
@@ -216,14 +192,17 @@ class ExcelGenerator:
         ).count()
         version = existing_count + 1
 
-        # 安全文件名
-        safe_name = scheme.scheme_name or "方案"
-        safe_name = safe_name.replace("/", "_").replace("\\", "_")[:60]
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == scheme.conversation_id)
+            .first()
+        )
+        base_name = build_output_base_name(scheme, conversation)
 
         output_dir = os.path.join(os.path.dirname(__file__), "..", "..", "output", "excels")
         output_dir = os.path.abspath(output_dir)
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"{safe_name}_v{version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = make_output_filename(base_name, version, "xlsx")
         filepath = os.path.join(output_dir, filename)
         wb.save(filepath)
 

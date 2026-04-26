@@ -18,6 +18,15 @@ os.environ["SEEKDB_DB"] = "test"
 backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
 sys.path.insert(0, backend_dir)
 
+# mock dingtalk_stream（测试环境可能未安装该包）
+if "dingtalk_stream" not in sys.modules:
+    _dsm = type(sys)("dingtalk_stream")
+    _dsm.ChatbotHandler = object
+    _dsm.ChatbotMessage = type("ChatbotMessage", (), {"TOPIC": "chatbot", "from_dict": lambda cls, d: type("Msg", (), d)()})()
+    _dsm.CallbackMessage = type("CallbackMessage", (), {})()
+    _dsm.AckMessage = type("AckMessage", (), {"STATUS_OK": "OK"})()
+    sys.modules["dingtalk_stream"] = _dsm
+
 from database import Base, get_db, engine
 from main import app
 

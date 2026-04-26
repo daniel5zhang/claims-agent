@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: hb-agent-backend
     ports:
-      - "8000:8000"
+      - "18080:8000"
     environment:
       - DB_TYPE=mysql
       - DB_URL=mysql+pymysql://${DB_USER:-root}:${DB_PASSWORD:-root}@seekdb:2881/${DB_NAME:-hb_agent}
@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile
     container_name: hb-agent-frontend
     ports:
-      - "80:80"
+      - "15174:80"
     depends_on:
       - backend
     networks:

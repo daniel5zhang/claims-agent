@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from database import (
     Conversation, GeneratedScheme, Service,
     PricingParams, PricingLogic, PricingRule,
+    UserFeatureRequest,
 )
 from services.baiyan_client import get_baiyan_client
 from services.pricing_engine import (
@@ -42,6 +43,7 @@ def _load_prompt(filename: str) -> str:
 SYSTEM_PROMPT = _load_prompt("system_prompt.txt")
 NEEDS_EXTRACTION_PROMPT = _load_prompt("needs_extraction_prompt.txt")
 SCHEME_EXTRACTION_PROMPT = _load_prompt("scheme_extraction_prompt.txt")
+INTENT_CLASSIFICATION_PROMPT = _load_prompt("intent_classification_prompt.txt")
 
 
 def _make_safe_messages(messages):
@@ -61,6 +63,76 @@ class AgentService:
 
     def __init__(self):
         self.baiyan = get_baiyan_client()
+        self._out_of_scope_reply = (
+            "我专注于帮您生成健康管理服务方案与报价。我可以：\n"
+            "1. 根据您的需求（人群、预算、场景）生成多档位服务方案\n"
+            "2. 方案确认后自动生成 Excel 报价单和 Word 服务手册\n"
+            "3. 根据反馈随时调整方案内容\n\n"
+            "如果您有其他需求，我会帮您记录下来反馈给产品团队。"
+            "请问有什么方案需求我可以帮您处理？"
+        )
+
+    async def _detect_user_intent(self, messages: List[Dict[str, Any]], user_message: str) -> Dict[str, Any]:
+        """使用 LLM 进行语义意图识别（失败时回退关键词规则）"""
+        context_messages = messages[-6:] if messages else []
+        context_text = "\n".join(
+            [f"{m.get('role', 'unknown')}: {m.get('content', '')}" for m in context_messages]
+        )
+        user_text = (user_message or "").strip()
+
+        llm_messages = [
+            {"role": "system", "content": INTENT_CLASSIFICATION_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"用户最新输入：{user_text}\n\n"
+                    f"最近对话上下文：\n{context_text}"
+                ),
+            },
+        ]
+
+        try:
+            response = await self.baiyan.chat_completion(
+                llm_messages,
+                model="qwen-turbo",
+                temperature=0.0,
+                max_tokens=256,
+            )
+            text = self.baiyan.extract_content(response).strip()
+
+            json_text = None
+            if text.startswith("{") and text.endswith("}"):
+                json_text = text
+            else:
+                json_text = self._find_first_balanced_json(text)
+
+            if json_text:
+                data = json.loads(json_text)
+                intent = data.get("intent", "other")
+                if intent in {
+                    "confirm_scheme",
+                    "adjust_scheme",
+                    "cancel_or_retry",
+                    "out_of_scope_request",
+                    "other",
+                }:
+                    return {
+                        "intent": intent,
+                        "confidence": float(data.get("confidence", 0.0) or 0.0),
+                        "reason": data.get("reason", ""),
+                        "source": "llm",
+                    }
+        except Exception as e:
+            logger.warning(f"[_detect_user_intent] LLM 识别失败，回退规则: {e}")
+
+        # 兜底：仅用于 LLM 异常或返回不可解析时，保证可用性
+        fallback_confirm = self._is_confirm_message(user_text)
+        return {
+            "intent": "confirm_scheme" if fallback_confirm else "other",
+            "confidence": 0.3,
+            "reason": "fallback_rule",
+            "source": "fallback",
+        }
 
     def _build_pricing_context_for_llm(
         self,
@@ -204,11 +276,48 @@ class AgentService:
                 "如问题持续出现，请联系客服400-xxx-xxxx获取帮助。"
             )
 
+        # 检测并记录超范围需求
+        self._detect_and_record_feature_request(
+            db, conversation, user_message, assistant_content, user_id
+        )
+
+        # 在返回内容之前清理标记（用户不应该看到）
+        assistant_content = re.sub(r'\[FEATURE_REQUEST:\s*[^\]]+\]', '', assistant_content).strip()
+
+        # 过滤虚假能力声明
+        assistant_content = self._filter_false_claims(assistant_content)
+
         # 将助手回复加入消息历史
         messages.append({"role": "assistant", "content": assistant_content})
 
-        # 检测用户确认意图（文本消息，如"确认"、"按此方案"等）
-        is_confirm_msg = self._is_confirm_message(user_message)
+        # LLM 语义意图识别（确认/调整/取消/其他）
+        intent_info = await self._detect_user_intent(messages, user_message)
+        user_intent = intent_info.get("intent", "other")
+        is_confirm_msg = user_intent == "confirm_scheme"
+        is_adjust_msg = user_intent == "adjust_scheme"
+        is_cancel_or_retry_msg = user_intent == "cancel_or_retry"
+        is_out_of_scope_msg = user_intent == "out_of_scope_request"
+        logger.info(
+            f"[process_message] user_intent={user_intent}, source={intent_info.get('source')}, "
+            f"confidence={intent_info.get('confidence')}"
+        )
+
+        if is_out_of_scope_msg:
+            # 流程外需求：固定回复 + 记录需求（兜底），不进入方案提取/状态流转链路
+            assistant_content = self._out_of_scope_reply
+            messages[-1]["content"] = assistant_content
+            self._save_feature_request(
+                db=db,
+                conversation=conversation,
+                user_message=user_message,
+                summary=(user_message or "").strip()[:180],
+                user_id=user_id,
+            )
+
+        # 调整/取消类意图：统一走状态机（必要时将 confirmed 回退为 draft）
+        transitioned_scheme = self._handle_non_confirm_intent_state(
+            db, conversation.id, user_intent
+        )
 
         # 如果是确认意图且已有草稿方案，跳过方案提取（避免 LLM 回复中的
         # 部分方案数据覆盖已落库的完整多方案数据）
@@ -225,6 +334,8 @@ class AgentService:
         scheme_data = None
         if existing_draft:
             logger.info("[process_message] 跳过方案提取（使用已有草稿）")
+        elif is_out_of_scope_msg:
+            logger.info("[process_message] 流程外需求意图，跳过方案提取")
         elif self._is_scheme_response(assistant_content):
             logger.info("[process_message] 检测到方案内容，调小模型提取...")
             scheme_data = await self._extract_scheme_via_llm(assistant_content)
@@ -235,6 +346,9 @@ class AgentService:
         logger.info(
             f"[process_message] scheme_data={scheme_data is not None}, "
             f"is_confirm_msg={is_confirm_msg}, "
+            f"is_adjust_msg={is_adjust_msg}, "
+            f"is_cancel_or_retry_msg={is_cancel_or_retry_msg}, "
+            f"is_out_of_scope_msg={is_out_of_scope_msg}, "
             f"has_draft={existing_draft is not None}"
         )
 
@@ -244,7 +358,9 @@ class AgentService:
 
         if existing_draft:
             # 确认已有草稿方案（保留完整的多方案数据）
-            scheme_out = self._check_confirm_intent(db, conversation.id, user_message, assistant_content)
+            scheme_out = self._check_confirm_intent(
+                db, conversation.id, user_message, assistant_content, is_confirm_intent=is_confirm_msg
+            )
         elif scheme_data:
             # 范围校验
             validated_scheme, out_of_scope = self._validate_scheme(db, scheme_data)
@@ -276,7 +392,12 @@ class AgentService:
                             self._save_pricing_logic_from_confirmation(db, gen, pricing_logic_data)
         elif is_confirm_msg:
             # 没有新方案 JSON，纯确认消息
-            scheme_out = self._check_confirm_intent(db, conversation.id, user_message, assistant_content)
+            scheme_out = self._check_confirm_intent(
+                db, conversation.id, user_message, assistant_content, is_confirm_intent=is_confirm_msg
+            )
+        elif transitioned_scheme:
+            # 调整/取消意图的状态流转结果（无新方案 JSON 时回传当前草稿方案）
+            scheme_out = transitioned_scheme
         else:
             scheme_out = None
 
@@ -627,6 +748,24 @@ class AgentService:
         logger.info(f"[_find_json_in_text] 未找到 scheme JSON, text 前200字: {text[:200]}")
         return None
 
+    @staticmethod
+    def _find_first_balanced_json(text: str) -> Optional[str]:
+        """提取文本中的第一个平衡 JSON 对象（通用）"""
+        import re as _re
+        for match in _re.finditer(r'\{', text):
+            start = match.start()
+            depth = 1
+            end = start + 1
+            while end < len(text) and depth > 0:
+                if text[end] == '{':
+                    depth += 1
+                elif text[end] == '}':
+                    depth -= 1
+                end += 1
+            if depth == 0:
+                return text[start:end]
+        return None
+
     def _parse_scheme_from_response(self, text: str) -> Optional[Dict[str, Any]]:
         """从模型回复中解析方案 JSON，支持 schemes 数组和单方案兼容"""
         try:
@@ -779,19 +918,15 @@ class AgentService:
         return any(k in user_lower for k in confirm_keywords) and not any(k in user_lower for k in cancel_keywords)
 
     def _check_confirm_intent(
-        self, db: Session, conversation_id: int, user_message: str, assistant_content: str
+        self,
+        db: Session,
+        conversation_id: int,
+        user_message: str,
+        assistant_content: str,
+        is_confirm_intent: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """检测用户确认方案意图，自动将 draft 方案标记为 confirmed 并返回"""
-        user_lower = user_message.strip()
-        assistant_lower = assistant_content[:200] if assistant_content else ""
-
-        # 助手回复中包含确认完成的表述
-        assistant_confirmed = any(
-            k in assistant_lower
-            for k in ["已确认", "已最终确认", "方案已确认", "确认生成"]
-        )
-
-        if not (self._is_confirm_message(user_message) or assistant_confirmed):
+        if not is_confirm_intent:
             return None
 
         # 查找当前会话的 draft 方案
@@ -820,7 +955,12 @@ class AgentService:
                     db, gen_scheme, pricing_logic_data
                 )
 
-        # 构建方案输出（与 _save_generated_scheme 返回格式一致）
+        return self._build_scheme_out(gen_scheme, status_override="confirmed")
+
+    def _build_scheme_out(
+        self, gen_scheme: GeneratedScheme, status_override: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """从 GeneratedScheme 构建统一输出结构"""
         raw_data = json.loads(gen_scheme.service_list_json or "{}")
         if isinstance(raw_data, dict):
             services = raw_data.get("services", [])
@@ -838,12 +978,69 @@ class AgentService:
             "service_list": services,
             "total_cost": float(gen_scheme.total_cost) if gen_scheme.total_cost else 0,
             "total_quote": float(gen_scheme.total_quote) if gen_scheme.total_quote else 0,
-            "status": "confirmed",
+            "status": status_override or gen_scheme.status,
         }
         if schemes:
             scheme_out["schemes"] = schemes
 
         return scheme_out
+
+    def _handle_non_confirm_intent_state(
+        self, db: Session, conversation_id: int, intent: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        非确认意图统一状态机：
+        - adjust_scheme: 优先保留 draft；若仅有 confirmed，则回退为 draft
+        - cancel_or_retry: 将最新 confirmed 回退为 draft；若已是 draft 则保持
+        """
+        if intent not in {"adjust_scheme", "cancel_or_retry"}:
+            return None
+
+        latest_draft = (
+            db.query(GeneratedScheme)
+            .filter(
+                GeneratedScheme.conversation_id == conversation_id,
+                GeneratedScheme.status == "draft",
+            )
+            .order_by(GeneratedScheme.id.desc())
+            .first()
+        )
+
+        if intent == "adjust_scheme" and latest_draft:
+            logger.info(
+                f"[_handle_non_confirm_intent_state] 调整意图，保持 draft 方案 id={latest_draft.id}"
+            )
+            return self._build_scheme_out(latest_draft)
+
+        latest_confirmed = (
+            db.query(GeneratedScheme)
+            .filter(
+                GeneratedScheme.conversation_id == conversation_id,
+                GeneratedScheme.status == "confirmed",
+            )
+            .order_by(GeneratedScheme.id.desc())
+            .first()
+        )
+
+        if latest_confirmed:
+            latest_confirmed.status = "draft"
+            db.commit()
+            logger.info(
+                f"[_handle_non_confirm_intent_state] intent={intent}, 回退 confirmed->draft, "
+                f"scheme_id={latest_confirmed.id}"
+            )
+            return self._build_scheme_out(latest_confirmed)
+
+        if latest_draft:
+            logger.info(
+                f"[_handle_non_confirm_intent_state] intent={intent}, 无 confirmed，返回现有 draft id={latest_draft.id}"
+            )
+            return self._build_scheme_out(latest_draft)
+
+        logger.info(
+            f"[_handle_non_confirm_intent_state] intent={intent}, 当前会话无可用方案"
+        )
+        return None
 
     def _save_pricing_logic_from_confirmation(
         self,
@@ -1053,6 +1250,179 @@ class AgentService:
             f"engine_cost={engine_cost}, engine_quote={engine_quote}"
         )
         return gen
+
+    def _filter_false_claims(self, text: str) -> str:
+        """过滤 LLM 回复中的虚假能力声明"""
+        import re
+
+        # 需要过滤的虚假能力关键词模式
+        false_claim_patterns = [
+            r'(?:高清)?PNG版?[《「]?[^》」\n]*[》」]?[（\(][^）\)]*[）\)]',  # PNG版《xxx》(xxx)
+            r'PDF[汇报]*摘要[（\(]?[^）\)\n]*[）\)]?',  # PDF汇报摘要
+            r'PPT[精简页汇报稿]*[（\(]?[^）\)\n]*[）\)]?',  # PPT精简页
+            r'[员工HR]*培训[短视频脚本PPT]*[（\(]?[^）\)\n]*[）\)]?',
+            r'[企业]*[微信钉钉]+通知模板[（\(]?[^）\)\n]*[）\)]?',
+            r'[视频]*脚本[（\(]?[^）\)\n]*[）\)]?',
+            r'发卡[清单SOP]*[（\(]?[^）\)\n]*[）\)]?',
+            r'数据看板',
+            r'成本占比说明函',
+            r'监管[合规]*[依据标注文档]+',
+        ]
+
+        # 移除包含虚假能力的整行（以✅、◆、■、→、-等开头的列表项）
+        for pattern in false_claim_patterns:
+            # 匹配列表项行
+            text = re.sub(
+                rf'^[\s]*[✅◆■●→\-\*]+\s*.*{pattern}.*$',
+                '',
+                text,
+                flags=re.MULTILINE
+            )
+
+        # 移除"马上要用"、"深化落地"、"扩展适配"等分类标题及其下方内容块
+        section_patterns = [
+            r'[◆◇★☆●■]+\s*【马上要用】.*?(?=\n[◆◇★☆●■]+\s*【|$)',
+            r'[◆◇★☆●■]+\s*【深化落地】.*?(?=\n[◆◇★☆●■]+\s*【|$)',
+            r'[◆◇★☆●■]+\s*【扩展适配】.*?(?=\n[◆◇★☆●■]+\s*【|$)',
+        ]
+        for pattern in section_patterns:
+            text = re.sub(pattern, '', text, flags=re.DOTALL)
+
+        # 移除"我即刻交付"、"全程在线不需等待"等过度承诺
+        overcommit_patterns = [
+            r'[我您]?即刻交付',
+            r'全程在线[，,]?不需?等待',
+            r'[您你]说需求[，,]?[我]即刻交付',
+            r'不需切换系统',
+            r'全部免费[、，]?实时[、，]?无需切换',
+        ]
+        for pattern in overcommit_patterns:
+            text = re.sub(pattern, '', text)
+
+        # 移除常见“越界能力清单”段落
+        out_of_scope_block_patterns = [
+            r'\n*\s*若您需要[:：][\s\S]*?(?=\n\s*\n|$)',
+            r'\n*\s*需要我进一步协助[\s\S]*?(?=\n\s*\n|$)',
+            r'\n*\s*用于汇报场景[\s\S]*?(?=\n\s*\n|$)',
+            r'\n*\s*也欢迎[您你]提出新需求[\s\S]*?(?=\n\s*\n|$)',
+        ]
+        for pattern in out_of_scope_block_patterns:
+            text = re.sub(pattern, "\n", text, flags=re.IGNORECASE)
+
+        # 删除单行越界能力描述（即使模型没有按列表格式输出）
+        line_patterns = [
+            r'.*PPT.*',
+            r'.*PDF.*',
+            r'.*PNG.*',
+            r'.*通知模板.*',
+            r'.*视频脚本.*',
+            r'.*发卡SOP.*',
+            r'.*数据看板.*',
+            r'.*合规文档.*',
+            r'.*监管依据.*',
+            r'.*成本占比说明函.*',
+        ]
+        for pattern in line_patterns:
+            text = re.sub(rf'^\s*{pattern}\s*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+
+        # 清理多余空行
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return text.strip()
+
+    def _maybe_extract_oos_summary_from_user_message(self, user_message: str) -> Optional[str]:
+        """从用户输入中检测超范围需求，返回摘要（无则返回 None）"""
+        text = (user_message or "").strip()
+        if not text:
+            return None
+
+        keywords = [
+            r'PPT', r'PDF', r'PNG', r'海报', r'图片',
+            r'视频脚本', r'通知模板', r'发卡SOP', r'数据看板',
+            r'合规文档', r'监管依据', r'说明函',
+        ]
+        kw_re = "|".join(keywords)
+        if not re.search(kw_re, text, flags=re.IGNORECASE):
+            return None
+
+        # “不要/不需要 X”不视为新增功能诉求
+        if re.search(r'(不要|不需要|无需|别).{0,8}(' + kw_re + r')', text, flags=re.IGNORECASE):
+            return None
+
+        summary = re.sub(r'\s+', ' ', text)[:180]
+        return summary
+
+    def _save_feature_request(
+        self,
+        db: Session,
+        conversation: Conversation,
+        user_message: str,
+        summary: str,
+        user_id: str = "",
+    ) -> None:
+        summary = (summary or "").strip()
+        if not summary:
+            return
+        try:
+            # 去重：同会话同摘要不重复写入
+            existed = (
+                db.query(UserFeatureRequest)
+                .filter(
+                    UserFeatureRequest.conversation_id == conversation.id,
+                    UserFeatureRequest.request_summary == summary,
+                )
+                .first()
+            )
+            if existed:
+                return
+
+            record = UserFeatureRequest(
+                user_id=user_id or conversation.user_id,
+                conversation_id=conversation.id,
+                session_id=conversation.session_id,
+                request_content=user_message,
+                request_summary=summary,
+                source="dingtalk" if (user_id or "").startswith("dingtalk_") else "web",
+            )
+            db.add(record)
+            db.commit()
+            logger.info(f"[需求记录] 已记录用户需求: {summary}")
+        except Exception as e:
+            logger.error(f"[需求记录] 保存失败: {e}")
+            db.rollback()
+
+    def _detect_and_record_feature_request(
+        self, db, conversation, user_message: str, assistant_content: str, user_id: str = ""
+    ):
+        """记录超范围需求：优先用户原始诉求，其次 LLM 的 FEATURE_REQUEST 标记"""
+        # 1) 用户原始输入兜底识别（避免依赖 LLM 标记）
+        summary_from_user = self._maybe_extract_oos_summary_from_user_message(user_message)
+        if summary_from_user:
+            self._save_feature_request(
+                db=db,
+                conversation=conversation,
+                user_message=user_message,
+                summary=summary_from_user,
+                user_id=user_id,
+            )
+            # 用户输入已识别为超范围需求时，不再重复消费 LLM 标记
+            return
+
+        # 2) 兼容 LLM 标记链路
+        pattern = r'\[FEATURE_REQUEST:\s*(.+?)\]'
+        matches = re.findall(pattern, assistant_content)
+
+        if not matches:
+            return
+
+        for summary in matches:
+            self._save_feature_request(
+                db=db,
+                conversation=conversation,
+                user_message=user_message,
+                summary=summary.strip(),
+                user_id=user_id,
+            )
 
     def get_conversation_history(self, db: Session, session_id: str, user_id: str = "") -> Optional[Dict[str, Any]]:
         query = db.query(Conversation).filter(Conversation.session_id == session_id)

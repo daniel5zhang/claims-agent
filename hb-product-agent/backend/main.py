@@ -10,9 +10,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
-from routers import chat, scheme, material, manual, excel, pricing
+from routers import chat, scheme, material, manual, excel, pricing, feature_request
 from middleware import UserIdMiddleware
 from services.task_manager import start_cleanup_scheduler
+from services.dingtalk_stream_client import DingtalkStreamClient
+
+# 全局钉钉 Stream 客户端实例（在 lifespan 中管理生命周期）
+_dingtalk_client: DingtalkStreamClient | None = None
 
 # 日志配置
 logging.basicConfig(
@@ -25,11 +29,25 @@ logger = logging.getLogger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+    global _dingtalk_client
     # 启动时初始化数据库
     init_db()
     # 启动后台任务清理调度器（每5分钟清理过期任务）
     start_cleanup_scheduler(interval_seconds=300)
+    # 启动钉钉 Stream 客户端（后台线程，不阻塞事件循环）
+    try:
+        _dingtalk_client = DingtalkStreamClient(loop=asyncio.get_running_loop())
+        _dingtalk_client.start()
+    except Exception as e:
+        logger.warning(f"钉钉 Stream 客户端启动失败: {e}")
     yield
+    # 关闭时优雅停止钉钉 Stream 客户端
+    if _dingtalk_client:
+        try:
+            _dingtalk_client.stop()
+        except Exception as e:
+            logger.warning(f"钉钉 Stream 客户端停止异常: {e}")
 
 
 app = FastAPI(
@@ -58,6 +76,7 @@ app.include_router(material.router, prefix="/api/material", tags=["素材库"])
 app.include_router(manual.router, prefix="/api/manual", tags=["服务手册"])
 app.include_router(excel.router, prefix="/api/excel", tags=["Excel报价单"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["定价引擎"])
+app.include_router(feature_request.router, prefix="/api/feature-request", tags=["需求记录"])
 
 
 @app.get("/health")

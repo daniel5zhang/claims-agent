@@ -77,10 +77,22 @@ class SchemeAdjustRequest(BaseModel):
 
 class GenerateManualRequest(BaseModel):
     scheme_id: int
+    selected_scheme_name: Optional[str] = Field(
+        None, description="可选：指定方案名称（多方案时只生成该方案）"
+    )
+    selected_scheme_index: Optional[int] = Field(
+        None, ge=1, description="可选：指定方案序号（从1开始，多方案时只生成该方案）"
+    )
 
 
 class GenerateExcelRequest(BaseModel):
     scheme_id: int
+    selected_scheme_name: Optional[str] = Field(
+        None, description="可选：指定方案名称（多方案时只生成该方案）"
+    )
+    selected_scheme_index: Optional[int] = Field(
+        None, ge=1, description="可选：指定方案序号（从1开始，多方案时只生成该方案）"
+    )
 
 
 class ManualOut(BaseModel):

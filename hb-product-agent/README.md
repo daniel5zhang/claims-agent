@@ -76,9 +76,9 @@ bash start.sh
 ```
 
 启动后访问：
-- 前端：`http://localhost:5173`
-- 后端 API 文档：`http://localhost:8000/docs`
-- 健康检查：`http://localhost:8000/health`
+- 前端：`http://localhost:15174`
+- 后端 API 文档：`http://localhost:18080/docs`
+- 健康检查：`http://localhost:18080/health`
 
 ### Docker Compose 部署（生产环境）
 
@@ -90,7 +90,7 @@ docker-compose up -d
 
 服务端口：
 - 前端 Nginx：`80`（反向代理 `/api/` 到后端）
-- 后端 Uvicorn：`8000`
+- 后端 Uvicorn：`18080`（容器外映射）
 - SeekDB：`2881`
 
 ## 项目结构
@@ -157,7 +157,7 @@ hb-product-agent/
 | 报价单 | `/api/excel` | Excel .xlsx 报价单生成、下载 |
 | 定价引擎 | `/api/pricing` | 精算定价计算 |
 
-详细接口文档请访问运行中的 Swagger UI：`http://localhost:8000/docs`
+详细接口文档请访问运行中的 Swagger UI：`http://localhost:18080/docs`
 
 ## 配置说明
 

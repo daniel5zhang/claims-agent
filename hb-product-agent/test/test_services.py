@@ -5,7 +5,8 @@
 import os
 import pytest
 import json
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import MagicMock, patch, AsyncMock
 
 
 class TestAgentService:
@@ -131,6 +132,80 @@ class TestAgentService:
         history = agent_service.get_conversation_history(db_session, "notexist")
         assert history is None
 
+    def test_detect_user_intent_confirm_by_semantics(self, agent_service, mock_baiyan):
+        """TC-SVC-015A: 语义确认（导出给我吧）命中 confirm_scheme"""
+        mock_baiyan.chat_completion = AsyncMock(return_value={"choices": [{"message": {"content": '{"intent":"confirm_scheme","confidence":0.95,"reason":"用户要求导出并执行"}'}}]})
+        mock_baiyan.extract_content.return_value = '{"intent":"confirm_scheme","confidence":0.95,"reason":"用户要求导出并执行"}'
+
+        result = asyncio.run(
+            agent_service._detect_user_intent(
+                [{"role": "assistant", "content": "以上3档方案已准备好，您确认后我将生成文件。"}],
+                "好，导出给我吧",
+            )
+        )
+        assert result["intent"] == "confirm_scheme"
+        assert result["source"] == "llm"
+
+    def test_detect_user_intent_fallback_when_llm_failed(self, agent_service, mock_baiyan):
+        """TC-SVC-015B: LLM 异常时回退关键词规则"""
+        mock_baiyan.chat_completion = AsyncMock(side_effect=Exception("llm timeout"))
+        mock_baiyan.extract_content.return_value = ""
+
+        result = asyncio.run(
+            agent_service._detect_user_intent(
+                [{"role": "assistant", "content": "请确认是否按当前方案执行。"}],
+                "确认",
+            )
+        )
+        assert result["intent"] == "confirm_scheme"
+        assert result["source"] == "fallback"
+
+    def test_non_confirm_state_adjust_reopens_confirmed(self, agent_service, db_session):
+        """TC-SVC-015C: adjust 意图会把 confirmed 回退为 draft"""
+        from database import GeneratedScheme
+        scheme = GeneratedScheme(
+            conversation_id=1001,
+            scheme_name="已确认方案",
+            service_list_json='{"services":[{"name":"图文问诊"}]}',
+            total_cost=10,
+            total_quote=15,
+            status="confirmed",
+        )
+        db_session.add(scheme)
+        db_session.commit()
+        db_session.refresh(scheme)
+
+        out = agent_service._handle_non_confirm_intent_state(
+            db_session, 1001, "adjust_scheme"
+        )
+        db_session.refresh(scheme)
+        assert scheme.status == "draft"
+        assert out is not None
+        assert out["status"] == "draft"
+        assert out["id"] == scheme.id
+
+    def test_non_confirm_state_cancel_keeps_latest_draft(self, agent_service, db_session):
+        """TC-SVC-015D: cancel/retry 无 confirmed 时返回现有 draft"""
+        from database import GeneratedScheme
+        draft = GeneratedScheme(
+            conversation_id=1002,
+            scheme_name="草稿方案",
+            service_list_json='{"services":[{"name":"视频问诊"}]}',
+            total_cost=20,
+            total_quote=30,
+            status="draft",
+        )
+        db_session.add(draft)
+        db_session.commit()
+        db_session.refresh(draft)
+
+        out = agent_service._handle_non_confirm_intent_state(
+            db_session, 1002, "cancel_or_retry"
+        )
+        assert out is not None
+        assert out["status"] == "draft"
+        assert out["id"] == draft.id
+
 
 class TestManualGenerator:
     """TC-SVC-MANUAL: 手册生成器"""
@@ -204,3 +279,42 @@ class TestBaiyanClient:
         """TC-SVC-025: 环境变量加载"""
         import os
         assert os.getenv("BAILIAN_API_KEY") is not None
+
+
+class TestSchemePayloadResolver:
+    """TC-SVC-RESOLVER: 统一取值对象解析"""
+
+    def test_resolver_same_scope_for_multi_schemes(self):
+        from services.scheme_payload_resolver import resolve_generation_scope
+        payload = json.dumps({
+            "services": [{"name": "顶层兜底服务"}],
+            "schemes": [
+                {"scheme_name": "方案一", "services": [{"name": "A"}, {"name": "B"}]},
+                {"scheme_name": "方案二", "service_list": [{"name": "C"}]},
+            ],
+        }, ensure_ascii=False)
+        scope = resolve_generation_scope(payload)
+        assert len(scope["selected_schemes"]) == 2
+        assert len(scope["services_with_scheme"]) == 3
+        assert [s.get("name") for s in scope["services_with_scheme"]] == ["A", "B", "C"]
+
+    def test_resolver_select_by_index(self):
+        from services.scheme_payload_resolver import resolve_generation_scope
+        payload = json.dumps({
+            "schemes": [
+                {"scheme_name": "方案一", "services": [{"name": "A"}]},
+                {"scheme_name": "方案二", "services": [{"name": "B"}, {"name": "C"}]},
+            ],
+        }, ensure_ascii=False)
+        scope = resolve_generation_scope(payload, selected_scheme_index=2)
+        assert len(scope["selected_schemes"]) == 1
+        assert scope["selected_schemes"][0]["scheme_name"] == "方案二"
+        assert [s.get("name") for s in scope["services_with_scheme"]] == ["B", "C"]
+
+    def test_resolver_select_by_name_not_found(self):
+        from services.scheme_payload_resolver import resolve_generation_scope
+        payload = json.dumps({
+            "schemes": [{"scheme_name": "方案一", "services": [{"name": "A"}]}],
+        }, ensure_ascii=False)
+        with pytest.raises(ValueError, match="未找到指定方案"):
+            resolve_generation_scope(payload, selected_scheme_name="不存在方案")

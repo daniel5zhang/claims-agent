@@ -27,7 +27,12 @@ async def generate_excel(req: GenerateExcelRequest, db: Session = Depends(get_db
 
     generator = ExcelGenerator()
     try:
-        excel = generator.generate_excel(db, req.scheme_id)
+        excel = generator.generate_excel(
+            db,
+            req.scheme_id,
+            selected_scheme_name=req.selected_scheme_name,
+            selected_scheme_index=req.selected_scheme_index,
+        )
         db.commit()
         logger.info(f"Excel 生成成功: scheme_id={req.scheme_id}, excel_id={excel.id}")
         return ApiResponse(

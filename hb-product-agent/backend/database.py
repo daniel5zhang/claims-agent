@@ -313,6 +313,23 @@ class GeneratedExcel(Base):
     create_time = Column(DateTime, default=datetime.now)
 
 
+# 用户超范围功能需求记录表
+class UserFeatureRequest(Base):
+    """用户超范围功能需求记录"""
+    __tablename__ = "user_feature_requests"
+
+    id = Column(PK_TYPE, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True, comment="用户ID")
+    conversation_id = Column(PK_TYPE, nullable=True, comment="关联对话ID")
+    session_id = Column(String(64), nullable=True, comment="会话ID")
+    request_content = Column(Text(16777215), nullable=False, comment="用户原始需求内容")
+    request_summary = Column(String(500), nullable=True, comment="需求摘要（从标记中提取）")
+    source = Column(String(20), default="dingtalk", comment="来源渠道: web/dingtalk")
+    status = Column(String(20), default="pending", comment="状态: pending/reviewed/planned/rejected")
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     # 数据迁移：为已有 conversations 表添加新字段

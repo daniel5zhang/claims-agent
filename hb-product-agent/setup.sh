@@ -49,7 +49,8 @@ BAILIAN_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 
 # 应用配置
 APP_DEBUG=true
-APP_PORT=8000
+APP_PORT=18080
+APP_BASE_URL=http://localhost:18080
 EOF
     echo ".env 文件已创建，请编辑填写实际的 API Key"
 fi
@@ -73,7 +74,7 @@ echo ""
 echo "=== 设置完成 ==="
 echo ""
 echo "启动后端:"
-echo "  cd backend && source venv/bin/activate && uvicorn main:app --reload --port 8000"
+echo "  cd backend && source venv/bin/activate && uvicorn main:app --reload --port 18080"
 echo ""
 echo "启动前端:"
 echo "  cd frontend && npm run dev"

@@ -28,7 +28,12 @@ async def generate_manual(req: GenerateManualRequest, db: Session = Depends(get_
 
     generator = ManualGenerator()
     try:
-        result = generator.generate_manual(db, req.scheme_id)
+        result = generator.generate_manual(
+            db,
+            req.scheme_id,
+            selected_scheme_name=req.selected_scheme_name,
+            selected_scheme_index=req.selected_scheme_index,
+        )
         manual, missing = result
         logger.info(f"服务手册生成成功: scheme_id={req.scheme_id}, manual_id={manual.id}")
         return ApiResponse(
