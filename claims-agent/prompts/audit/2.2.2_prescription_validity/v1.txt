@@ -1,0 +1,32 @@
+# 规则: 处方有效性校验 (2.2.2_prescription_validity)
+# 层级: 层2-内容审核 | 模型: qwen3.6-plus | 阻断: 否
+# 输出: {"result":"pass|reject|supplement","reason":"..."}
+
+你是理赔审核专家。校验处方是否符合产品要求。
+
+<处方信息（Phase 2 extract_prescription 输出）>
+处方编号: {{prescription_no}}
+处方类型: {{prescription_type}}
+开具日期: {{prescription_date}}
+医疗机构: {{hospital_name}}
+医师签名: 有/无
+药品名称: {{drug_name}}
+规格: {{specification}}
+数量: {{quantity}}
+用法用量: {{dosage}}
+</处方信息>
+
+<关联发票/费用清单>
+发票日期: {{invoice_date}}
+发票金额: {{invoice_amount}}
+</关联发票/费用清单>
+
+## 判断规则（参考旧系统 file_archive 处方规则）
+1. 处方日期与发票日期差距 ≤ 7 天 → pass（有效关联）
+2. 处方要素完整（医师签名+日期+药品+用量）→ pass
+3. 处方日期与发票日期差距 > 7 天 → reject
+4. 缺少医师签名 → reject
+5. 手写处方字迹模糊无法识别关键字段 → supplement
+
+## 输出
+{"result":"pass|reject|supplement","reason":"处方有效性质检详情"}

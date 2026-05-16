@@ -1,0 +1,30 @@
+# Django + API
+Django==4.2.*
+djangorestframework==3.15.*
+django-cors-headers==4.*
+drf-spectacular==0.*
+
+# WebSocket
+channels==4.*
+daphne==4.*
+
+# Task queue
+huey==2.*
+
+# AI / Agent
+openai==1.*
+pysqlite3==0.*          # macOS 替代 sqlite3 以支持 extension loading
+sqlite-vec==0.*
+
+# Config
+python-decouple==3.*
+
+# Monitoring
+sentry-sdk==2.*
+
+# Dev / Test
+pytest-django==4.*
+factory-boy==3.*
+
+# Database (production)
+mysqlclient==2.*        # MySQL 8 生产迁移

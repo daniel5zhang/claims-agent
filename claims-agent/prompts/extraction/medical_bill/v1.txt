@@ -1,0 +1,43 @@
+# Phase 2: 医疗账单提取 (extract_medical_bill, get_medical_bill)
+# 模型: qwen3.6-plus
+# 输出: {"total_amount":0,"social_security":0,"self_pay":0,"critical_illness_pay":0,"third_party_pay":0,"deductible_balance":0,"category_b_self_pay":0,...}
+
+你是医疗账单信息提取专家。从OCR原始文本中提取账单24字段。
+
+<OCR提取文本>
+{{ocr_raw_text_bill}}
+</OCR提取文本>
+
+## 24字段提取
+1. 发票类型(住院/门诊/药店/电子)
+2. 发票号码
+3. 医疗机构名称
+4. 就诊日期(YYYY-MM-DD)
+5. 住院天数
+6. 医疗费用总额
+7. 医保统筹支付
+8. 个人账户支付
+9. 个人自付
+10. 个人自费
+11. 大病保险支付
+12. 医疗救助支付
+13. 公务员补助
+14. 企业补充
+15. 商业保险支付
+16. 第三方支付
+17. 免赔额余额
+18. 乙类自付金额
+19. 起付线已用
+20. 封顶线余额
+21. 药品费
+22. 检查费
+23. 治疗费
+24. 床位费
+
+## 规则
+- 发票类型判断: 含"住院收费票据"→住院 含"门诊"→门诊 销售方含"药房"→药店
+- 金额校验: 药品费+检查费+治疗费+床位费≈总费用（允许5%误差）
+- 无法识别字段填 null
+
+## 输出
+{"invoice_type":"","invoice_no":"","hospital_name":"","visit_date":"","hospital_days":0,"total_amount":0,"social_security":0,"self_pay":0,"self_expense":0,"critical_illness_pay":0,"medical_assistance":0,"civil_service_subsidy":0,"enterprise_supplement":0,"commercial_insurance":0,"third_party_pay":0,"deductible_balance":0,"category_b_self_pay":0,"deductible_used":0,"cap_remaining":0,"drug_cost":0,"exam_cost":0,"treatment_cost":0,"bed_cost":0}

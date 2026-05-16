@@ -1,0 +1,56 @@
+# Phase 2: 处方用药提取 (extract_prescription, get_prescription_drug)
+# 模型: qwen3.6-plus
+# 输出: [{"prescription_no":"","prescription_type":"","drug_name":"","generic_name":"","spec":"","quantity":0,"unit_price":0,"amount":0,"usage":"","dosage":"","medication_days":0,"hospital_name":"","prescription_date":"","doctor_name":""}]
+
+你是处方用药信息提取专家。从OCR原始文本中提取处方27字段。传入的每个药品都要对应一个处方信息输出。
+
+<OCR提取文本>
+{{ocr_raw_text_prescription}}
+</OCR提取文本>
+
+<已知药品信息>
+{{known_drug_info}}
+</已知药品信息>
+
+## 数据来源优先级
+1. 电子处方 — 最完整
+2. 处方单 — 标准格式
+3. 临时医嘱单 — 住院院内购药
+4. 病历 — 用药信息补充
+
+## 27字段提取
+1. 处方编号
+2. 处方类型 (CF=处方单/DZ=电子处方/YZ=临时医嘱单)
+3. 开具日期 (YYYY-MM-DD)
+4. 医疗机构名称
+5. 科室名称
+6. 医师姓名
+7. 医师签名(有/无)
+8. 患者姓名
+9. 患者性别
+10. 患者年龄
+11. 临床诊断
+12. 药品通用名
+13. 药品商品名
+14. 药品规格
+15. 数量
+16. 单位(盒/瓶/支)
+17. 单价
+18. 金额
+19. 用法(口服/注射/外用等)
+20. 用量(如:每次2片每日3次)
+21. 用药天数
+22. 用药周期(第几周期)
+23. 医保类别(甲/乙/丙/自费)
+24. 是否院内购药
+25. 关联发票编号
+26. 关联发票金额
+27. 备注
+
+## 规则
+- 处方日期与发票日期≤7天视为有效关联
+- 无对应值填 null
+- 每个药品独立一条记录
+
+## 输出
+[{"prescription_no":"","prescription_type":"","prescription_date":"","hospital_name":"","dept_name":"","doctor_name":"","doctor_signed":"","patient_name":"","patient_gender":"","patient_age":0,"diagnosis":"","drug_common_name":"","drug_brand_name":"","spec":"","quantity":0,"unit":"","unit_price":0,"amount":0,"usage":"","dosage":"","medication_days":0,"cycle":0,"insurance_category":"","is_in_hospital":"","invoice_no":"","invoice_amount":0,"remark":""}]
