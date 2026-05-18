@@ -50,9 +50,16 @@ def ocr_classify(attachments: list[dict]) -> list[dict]:
             )
             content = resp.choices[0].message.content
             parsed = _safe_json(content, {})
+            big = parsed.get('big_type','')
+            small = parsed.get('small_type','')
+            # Map Chinese big_type to old system English type_code for eval comparison
+            type_code_map = {'1':'Identification_materials','2':'Medical_diagnosis_and_treatment_materials',
+                '3':'Prescription_drug_materials','4':'Medical_expense_materials',
+                '21':'Supplementary_materials_for_claims','0':'Unknown'}
             results.append({
                 "attachment_id": att["attachment_id"],
-                "doc_type": f"{parsed.get('big_type','')}/{parsed.get('small_type','')}",
+                "doc_type": f"{big}/{small}",
+                "type_code": type_code_map.get(str(big), str(big)),
                 "confidence": float(parsed.get("confidence", 0)),
             })
         except Exception as e:

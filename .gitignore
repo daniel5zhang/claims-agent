@@ -167,3 +167,6 @@ hb-product-agent/backend/generated_manuals/service_manual_8000002_20260424_12424
 node_modules/
 *.db
 __pycache__/
+data/db.sqlite3
+data/eval_full_dataset.json
+data/eval_*.json

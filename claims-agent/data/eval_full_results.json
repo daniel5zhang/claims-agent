@@ -1,0 +1,171 @@
+{
+  "metrics": {
+    "ocr_classify_accuracy": 0.0,
+    "ocr_extract_success": 97.0,
+    "drug_match_rate": 100.0,
+    "hospital_match_rate": 95.0,
+    "ocr_time_s": 1899.3
+  },
+  "results": [
+    {
+      "case_no": "CAZGRM20260209000044",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251120000055",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CAZGRS20251103000023",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251107000042",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CALJHM20251229000058",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CAZGRM20251010000086",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "not_found",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CAZGRM20260509000025",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20260302000006",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251221000006",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CALJHM20251229000052",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251215000032",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251014000037",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CABJYX20260226000008",
+      "old_conclusion": "JP",
+      "drug_match": "fuzzy",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251120000055",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CAZGRM20260324000008",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20260302000006",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251221000006",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20251014000037",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": true
+    },
+    {
+      "case_no": "CAZGRM20260324000008",
+      "old_conclusion": "JP",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    },
+    {
+      "case_no": "CAZGRM20260302000006",
+      "old_conclusion": "ZCPF",
+      "drug_match": "exact",
+      "hospital_match": "exact",
+      "ocr_count": 3,
+      "preexisting": false
+    }
+  ]
+}

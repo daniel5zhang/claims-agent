@@ -28,3 +28,17 @@ class DrugIndication(models.Model):
     source = models.CharField(max_length=32, default="readonly_db")
     version = models.IntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class DrugAuditPoint(models.Model):
+    """药品适应症审核要点 — 每条具体的审核规则"""
+    id = models.CharField(primary_key=True, max_length=64)
+    drug = models.ForeignKey(Drug, on_delete=models.CASCADE, related_name='audit_points')
+    indication = models.CharField(max_length=256)  # 适应症名称（如"肺癌"、"甲状腺癌"）
+    point_index = models.IntegerField(default=1)   # 第几条审核要点
+    point_content = models.TextField()             # 审核要点内容
+    point_detail = models.TextField(null=True)     # 详细说明（含医学定义）
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['drug_id', 'indication'])]

@@ -27,6 +27,23 @@ def _load_rule_prompt(rule_code: str) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
+def _load_drug_audit_points(drug_name: str, disease: str) -> list[dict]:
+    """加载药品专属审核要点"""
+    from apps.drugs.models import Drug, DrugAuditPoint
+    drug = Drug.objects.filter(common_name__icontains=drug_name[:6]).first()
+    if not drug: return []
+    points = DrugAuditPoint.objects.filter(drug=drug, is_active=True)
+    if disease:
+        # Match: disease contains indication keyword (e.g. "非小细胞肺癌" contains "肺癌")
+        indications = list(points.values_list('indication', flat=True).distinct())
+        for ind in indications:
+            if ind and len(ind) >= 2 and ind in disease:
+                points = points.filter(indication=ind)
+                break
+    return [{'point_index': p.point_index, 'point_content': p.point_content,
+             'indication': p.indication} for p in points[:10]]
+
+
 def _safe_json(text: str, default=None):
     try:
         start = text.find("{")
@@ -64,14 +81,15 @@ def run_audit_rule(rule_code: str, archive: dict, history: dict = None,
 
 请执行规则 {rule_code} 的审核，严格按上述规则判定。"""
 
+    # flash for simple rules, plus for complex reasoning
+    model = settings.FLASH_MODEL if rule_code.startswith(("1.1","1.2","2.1","2.2","3.2","drug_verify","coverage_time")) else settings.PRIMARY_MODEL
     client = _get_client()
-    model = settings.PRIMARY_MODEL if rule_code.startswith(("1.3", "3.1", "4.")) else settings.FLASH_MODEL
     try:
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": prompt},
                       {"role": "user", "content": context}],
-            temperature=0.1, max_tokens=1024,
+            temperature=0.1, max_tokens=512,
         )
         result = _safe_json(resp.choices[0].message.content,
                            {"result": "error", "reason": "parse_failed"})
@@ -146,19 +164,56 @@ def check_waiting_period(policy_effective_date, claim_date, waiting_days: int = 
     return {"result": "reject", "reason": f"等待期未满({elapsed}/{waiting_days}天)"}
 
 
-def run_indication_audit(drug_name: str, archive: dict) -> dict:
-    """适应症审核要点"""
-    prompt = _load_rule_prompt("1.3.1_drug_match")
+def run_indication_audit(drug_name: str, archive: dict, case_info: dict = None) -> dict:
+    """适应症审核要点 — 加载药品专属规则逐条审核"""
+    # Load drug-specific audit points
+    disease = (archive.get('diagnosis_info', {}).get('disease', '') or
+               (case_info or {}).get('diagnosis', ''))
+    drug_points = _load_drug_audit_points(drug_name, disease)
+
+    if not drug_points:
+        # Fallback: generic prompt
+        prompt = _load_rule_prompt("1.3.1_drug_match")
+        client = _get_client()
+        try:
+            resp = client.chat.completions.create(
+                model=settings.PRIMARY_MODEL,
+                messages=[{"role": "system", "content": prompt or "审核药品适应症"},
+                          {"role": "user", "content": f"药品: {drug_name}\n档案: {json.dumps(archive, ensure_ascii=False)}"}],
+                temperature=0.1, max_tokens=2048,
+            )
+            return _safe_json(resp.choices[0].message.content, {"result": "pass", "drug_name": drug_name})
+        except Exception as e:
+            return {"result": "error", "drug_name": drug_name, "reason": str(e)}
+
+    # Build drug-specific audit prompt
+    points_text = "\n".join([f"  {p['point_index']}. {p['point_content']}" for p in drug_points])
+    prompt = f"""你是肿瘤特药理赔审核专家。请逐条审核以下{len(drug_points)}个审核要点，每条返回 pass 或 reject 及原因。
+
+<药品审核要点>
+{points_text}
+</药品审核要点>
+
+<患者档案>
+{json.dumps(archive, ensure_ascii=False)}
+</患者档案>
+
+审核原则:
+1. 每条要点必须基于患者档案中的证据判定，不做推断
+2. 缺少证据 → reject，注明"证据不足: ..."
+3. 有证据且符合 → pass
+4. 所有要点通过才整体 pass
+
+输出格式: {{"result":"pass|reject","reason":"整体判定","points":[{{"index":1,"result":"pass|reject","reason":"..."}}]}}"""
+
     client = _get_client()
     try:
         resp = client.chat.completions.create(
             model=settings.PRIMARY_MODEL,
-            messages=[{"role": "system", "content": prompt or "审核药品适应症"},
-                      {"role": "user", "content": f"药品: {drug_name}\n档案: {json.dumps(archive, ensure_ascii=False)}"}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.1, max_tokens=2048,
         )
-        return _safe_json(resp.choices[0].message.content,
-                         {"result": "pass", "drug_name": drug_name})
+        return _safe_json(resp.choices[0].message.content, {"result": "pass", "drug_name": drug_name})
     except Exception as e:
         return {"result": "error", "drug_name": drug_name, "reason": str(e)}
 

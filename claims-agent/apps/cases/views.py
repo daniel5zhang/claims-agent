@@ -1,8 +1,9 @@
 """案件 API 视图"""
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from .models import Case, Attachment
 from .serializers import CaseListSerializer, CaseDetailSerializer
 from .intake.manual_adapter import ManualAdapter
@@ -82,6 +83,49 @@ class CaseViewSet(viewsets.ModelViewSet):
         )
         return Response({"queued": len(case_ids)})
 
+    @action(detail=False, methods=["post"])
+    @csrf_exempt
+    def sync(self, request):
+        """从旧系统同步案件"""
+        project_id = request.data.get("project_id", "")
+        case_ids = request.data.get("case_ids", [])
+        from .intake.old_system_adapter import OldSystemAdapter
+        adapter = OldSystemAdapter()
+        filters = {}
+        if project_id: filters["project_id"] = project_id
+        if case_ids: filters["case_ids"] = case_ids
+        try:
+            cases = adapter.ingest(**filters)
+            return Response({"synced": len(cases), "cases": CaseListSerializer(cases, many=True).data})
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def c_case_list(request):
+    """C端案件列表 — 免认证"""
+    qs = Case.objects.all().order_by("-created_at")[:50]
+    return Response(CaseListSerializer(qs, many=True).data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def c_case_detail(request, pk):
+    """C端案件详情 — 免认证"""
+    try:
+        case = Case.objects.get(id=pk)
+        return Response(CaseDetailSerializer(case).data)
+    except Case.DoesNotExist:
+        return Response({"error": "not found"}, status=404)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def c_supplement(request, pk):
+    """C端补材提交 — 免认证"""
+    return Response({"status": "received", "case_id": pk})
+
 
 class AttachmentViewSet(viewsets.ModelViewSet):
     queryset = Attachment.objects.all()
@@ -98,3 +142,42 @@ class AttachmentViewSet(viewsets.ModelViewSet):
         storage.save(storage_path, f.read())
         serializer.save(case_id=self.kwargs["case_pk"], storage_path=storage_path,
                         file_name=f.name, file_size=f.size, mime_type=f.content_type)
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def dashboard_stats(request):
+    """Dashboard 统计数据"""
+    from django.db.models import Count
+    total = Case.objects.count()
+    statuses = {r['status']: r['count'] for r in Case.objects.values('status').annotate(count=Count('id'))}
+    return Response({
+        "total": total,
+        "pending": statuses.get("pending", 0),
+        "running": statuses.get("running", 0),
+        "completed": statuses.get("completed", 0),
+        "supplement_required": statuses.get("supplement_required", 0),
+        "manual_review": statuses.get("manual_review", 0),
+        "error": statuses.get("error", 0),
+        "cancelled": statuses.get("cancelled", 0),
+    })
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+@csrf_exempt
+def sync_from_old_system(request):
+    """从旧系统同步案件"""
+    project_id = request.data.get("project_id", "")
+    case_ids = request.data.get("case_ids", [])
+    from .intake.old_system_adapter import OldSystemAdapter
+    adapter = OldSystemAdapter()
+    filters = {}
+    if project_id:
+        filters["project_id"] = project_id
+    if case_ids:
+        filters["case_ids"] = case_ids
+    try:
+        cases = adapter.ingest(**filters)
+        return Response({"synced": len(cases), "cases": CaseListSerializer(cases, many=True).data})
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)

@@ -43,7 +43,7 @@ async def run_agent(case_id: str, policy_ids: list[str]) -> dict:
 
     try:
         # Phase 0: 案件解析 + 保单发现
-        _run_phase_sync(ctx, "phase_0_discovery", case_id, policy_ids)
+        await _run_phase_sync(ctx, "phase_0_discovery", case_id, policy_ids)
 
         # Phase 1-5: 并行执行每个保单
         policy_results = await asyncio.gather(*[
@@ -59,22 +59,27 @@ async def run_agent(case_id: str, policy_ids: list[str]) -> dict:
         return {"decision": "error", "reason": str(e), "total_amount": 0}
 
 
-def _run_phase_sync(ctx: AgentContext, phase: str, case_id: str, policy_ids: list[str]):
-    """同步阶段（查库操作）"""
+async def _run_phase_sync(ctx: AgentContext, phase: str, case_id: str, policy_ids: list[str]):
+    """同步阶段（查库操作）— 用 sync_to_async 包装 Django ORM"""
+    from asgiref.sync import sync_to_async
     ctx.current_phase = phase
-    # Phase 0: 查案件信息 + 保单发现
-    from apps.cases.models import Case
-    from apps.policies.services.policy_discovery import discover_policies
-    from datetime import date
-
-    case = Case.objects.get(id=case_id)
+    # Phase 0: 查案件信息（用 sync_to_async 包装 Django ORM 调用）
+    @sync_to_async
+    def _get_case():
+        from apps.cases.models import Case
+        return Case.objects.get(id=case_id)
+    case = await _get_case()
     ctx.policies = policy_ids
 
 
 async def _run_policy_pipeline(ctx: AgentContext, policy_id: str) -> dict:
     """单保单流水线: raise Model → 收集 tools → 执行 → 循环"""
-    from apps.cases.models import Case
-    case = Case.objects.get(id=ctx.case_id)
+    from asgiref.sync import sync_to_async
+    @sync_to_async
+    def _get_case():
+        from apps.cases.models import Case
+        return Case.objects.get(id=ctx.case_id)
+    case = await _get_case()
 
     # 构建工具 + 系统提示
     tools = _build_policy_tools(case.claim_mode, case.claim_type)
@@ -103,7 +108,9 @@ async def _run_policy_pipeline(ctx: AgentContext, policy_id: str) -> dict:
         except Exception as e:
             # 重试 + 备用模型
             if _is_rate_limit(e):
-                await asyncio.sleep(_backoff(turn))
+                # 优先读 Retry-After header，否则指数退避
+                retry_after = _get_retry_after(e)
+                await asyncio.sleep(retry_after if retry_after else _backoff(turn))
                 continue
             try:
                 client = _get_client(settings.FALLBACK_MODEL)
@@ -232,10 +239,21 @@ async def _execute_tool(name: str, args: dict, ctx: AgentContext) -> dict:
 
 
 def _build_system_prompt(ctx: AgentContext) -> str:
-    return f"""你是保险理赔 AI 审核专家。按 Phase 0→1→2→3→4→5→6→7 顺序执行审核。
+    return f"""你是保险理赔 AI 审核专家。使用提供的工具函数按 Phase 顺序执行审核。
+
 案件 ID: {ctx.case_id}
-输出格式: {{"decision":"pass|reject|supplement|transferToManual","reason":"...","amount":0}}
-审核原则: 准确、基于证据、不做推断。缺少材料时标记 supplement。有歧义时标记 transferToManual。"""
+
+执行步骤:
+1. get_case_info → 获取案件信息
+2. verify_on_ins → 校验保单
+3. match_drug / match_hospital / match_disease → 匹配
+4. run_audit_rule → 逐条审核规则
+5. calculate_compensation → 计算赔付
+
+完成所有步骤后，你必须输出一个 JSON 对象作为最终答案，格式:
+{{"decision":"pass|reject|supplement|transferToManual","reason":"审核依据摘要","amount":赔付金额}}
+
+审核原则: 基于证据，不做推断。缺材料标记 supplement。有歧义标记 transferToManual。"""
 
 
 def _parse_policy_result(content: str | None, policy_id: str) -> dict:
@@ -267,6 +285,15 @@ async def _run_aggregation(ctx: AgentContext, policy_results: list[dict]) -> dic
 
 def _is_rate_limit(e: Exception) -> bool:
     return "429" in str(e) or "rate" in str(e).lower()
+
+def _get_retry_after(e: Exception) -> float | None:
+    """从异常中提取 Retry-After header 值"""
+    try:
+        if hasattr(e, 'response') and e.response:
+            ra = e.response.headers.get('Retry-After') or e.response.headers.get('retry-after')
+            if ra: return float(ra)
+    except: pass
+    return None
 
 
 def _backoff(turn: int) -> float:

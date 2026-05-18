@@ -2963,25 +2963,92 @@ print("deepseek-v4-flash:", resp.choices[0].message.content)
 - [x] 系统配置版本管理（ConfigVersion 模型 + save_config_version）
 - [x] ProductTermsDocument 模型已创建
 
-### 阶段十三：UI（Vue3 SPA，内部系统 + C 端 + 移动端适配）⏳ 骨架完成
+### 阶段十三：UI（Vue3 SPA，内部系统 + C 端 + 移动端适配）✅ 已完成
 - [x] Vue3 + Vite + Pinia + Vue Router 项目骨架
-- [x] 8 路由占位（Dashboard/CaseList/CaseDetail/Admin/C端）
-- [ ] 具体页面开发 → 后续 Phase
-- [ ] WebSocket 实时进度推送（CaseProgressConsumer 已实现）
-- [ ] C 端免认证路由 `/c/`
+- [x] 登录页（账号密码 + 钉钉扫码入口）
+- [x] Dashboard（统计卡片 + 待办列表）
+- [x] 案件列表（筛选/批量审核/分页/优先级标识/撤销）
+- [x] 案件详情（基础信息/执行进度/规则矩阵 三Tab）
+- [x] 报案录入（表单 + 附件上传）
+- [x] 管理端：规则库管理 + 系统配置
+- [x] C 端（案件列表 + 案件详情 + 补材上传）
+- [x] 路由守卫（内部需登录，C端免认证）
+- [ ] 移动端响应式适配 → 后续
 
 ### 阶段十四：批量队列 + 系统审计日志 + 执行统计 ✅ 已完成
 - [x] Huey 任务队列集成（run_audit_task）
 - [x] 日志定时清理（cleanup_old_logs, 每日凌晨2点）
 - [x] ModelCallLog 执行统计模型
 
-### 阶段十五：评测 ✅ 框架就绪
-- [x] 评测脚本目录（eval/）
-- [x] 评测指标定义（决策一致率/拒赔精确率/补材召回率/规则级准确率）
-- [x] 开发用测试集（data/test_cases.json, 7条）
-- [ ] 完整评测数据集（200+ 条）→ 后续补充
+### 阶段十五：评测 ✅ 完成
 
-### 阶段十六：险种扩展（后续）
-- [ ] BaseClaimAgent 抽象
-- [ ] 险种路由注册表（医疗险/意外险/重疾险）
-- [ ] 医疗险责任规则集接入
+**评测数据集已构建**：`data/eval_full_dataset.json` (212.5 MB) + 已入库 SQLite
+
+#### 数据来源
+从旧系统只读库（PostgreSQL `claim-special-medicine-core` schema）抽取，包含以下层级：
+
+```
+Project (项目, if_project_details)            — 73 个
+  └── Liability (责任, if_insurance)          — 341 个 (ty特药934/hlqy护理507/yl医疗150/qy权益57)
+        ├── 保额/免赔额/等待期/赔付比例/算法ID
+        └── Drug List (药单, if_drug_rel)     — 1,418 条 (13个特药项目有药单)
+              └── Drug (if_drug_info)          — 1,060 种
+                    └── Indication (if_drug_diseases) — 2,182 条
+                          └── Audit Points (if_case_drug_point) — 240 条标注 (63案件)
+```
+
+#### 评测数据规模
+
+| 表 | 记录数 | 说明 |
+|------|--------|------|
+| EvalAnnotation | 26,399 | AI vs 人工审核要点标注 (AI通过+人工驳回:19,390 / 一致通过:2,290) |
+| EvalAuditPointDetail | 174,306 | 审核要点明细 (含 manual_review 标记) |
+| EvalCase | 5,691 | 案件数据 (JA 已结案 5,352, 94%) |
+| EvalPolicy | 4,505 | 保单数据 (100% 有保额/免赔额数据) |
+| EvalProduct | 341 | 保险责任 (100% 有赔付比例+等待期) |
+| EvalAudit | 25,565 | 审核轨迹 (PS:15,972 / JP:2,877 / NP:2,424) |
+| EvalDrugRel | 1,418 | 产品药单映射 |
+| EvalCaseDrugPoint | 240 | 案件药品级审核要点 (pass:163 / fail:77) |
+
+#### 完整性
+
+```
+✅ 有保单: 100%  ✅ 有诊断: 100%  ✅ 有药品: 98%
+✅ 有审核: 100%  ✅ 有标注: 100%  ✅ 五数据全齐: 5,580 (98%)
+```
+
+#### 评测能力
+
+- **案件级**：决策一致率 (5,691 案件 vs 旧系统 PS/JP/NP 结论)
+- **规则级**：每条审核要点的 AI vs 人工准确率 (26,399 条标注)
+- **药品级**：逐药品审核要点一致率 (240 条)
+- **理算级**：赔付金额偏差 (32 个算法 × 5,580 案件)
+- **可定位**：按规则/药品/项目分组统计，识别表现最差的 prompt
+
+#### 评测指标
+
+| 指标 | 说明 | 目标 |
+|------|------|------|
+| 决策一致率 | Agent最终决策 vs 人工最终决策一致比例 | ≥85% |
+| 拒赔精确率 | 拒赔案件中真实应拒赔的比例 | ≥90% |
+| 补材召回率 | 应补材案件被正确识别的比例 | ≥80% |
+| **规则级准确率** | **每条规则 Agent 结论 vs 人工标记正确结论的一致率** | **每条≥80%** |
+| 规则覆盖率 | 每条规则被触发评测的案件数 | 每条≥10 |
+| 平均处理时长 | 单案件端到端耗时 | ≤60s |
+| 模型调用成本 | 单案件 token 消耗和费用 | 记录基线 |
+
+#### 评测脚本
+
+```
+eval/
+├── pull_eval_data.py      # 从只读库拉取评测数据
+├── run_eval.py            # 批量跑 Agent，收集结果
+├── compare_results.py     # 对比 Agent 结论 vs 人工标记
+└── report.py              # 生成评测报告（按规则/按项目分组）
+```
+
+### 阶段十六：险种扩展 ✅ 框架完成
+- [x] BaseClaimAgent 抽象类（SpecialDrugAgent / MedicalAgent / AccidentAgent / CriticalIllnessAgent）
+- [x] 险种路由注册表（AGENT_REGISTRY: SP/MED/ACC/CI）
+- [x] 医疗险责任规则集接入（住院/门诊责任规则已定义）
+- [ ] 完整评测数据验证 → 后续 Phase

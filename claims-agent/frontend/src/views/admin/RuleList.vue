@@ -1,1 +1,21 @@
-<template><div>admin/RuleList</div></template>
+<template>
+  <div class="pg"><h2>规则库管理</h2>
+    <div class="tabs"><button v-for="t in tabs" :key="t" :class="{active:tab===t}" @click="tab=t">{{t}}</button><button class="btn primary" @click="showEditor=!showEditor">{{showEditor?'取消':'新增规则'}}</button></div>
+    <div v-if="showEditor" class="editor box"><h3>{{editingRule?'编辑规则':'新增规则'}}</h3><label>编号<input v-model="form.code"></label><label>名称<input v-model="form.name"></label><label>层级<select v-model="form.layer"><option v-for="i in 4" :key="i" :value="i">层{{i}}</option></select></label><label>模型<select v-model="form.model"><option>qwen3.6-plus</option><option>qwen3.6-flash</option></select></label><label>阻断<select v-model="form.blocking"><option :value="true">是</option><option :value="false">否</option></select></label><label>Prompt<textarea v-model="form.prompt" rows="6"></textarea></label><button class="btn primary" @click="saveRule">保存</button></div>
+    <table><thead><tr><th>编号</th><th>名称</th><th>层</th><th>模型</th><th>版本</th><th>阻断</th><th>操作</th></tr></thead>
+    <tbody><tr v-for="r in rules" :key="r.code"><td>{{r.code}}</td><td>{{r.name}}</td><td>层{{r.layer}}</td><td>{{r.model}}</td><td>{{r.version}}</td><td>{{r.blocking?'是':'否'}}</td><td><button @click="editRule(r)">编辑</button><button @click="publishRule(r)">发布</button><button class="del" @click="deleteRule(r)">删除</button></td></tr></tbody></table>
+  </div>
+</template>
+<script setup>
+import { ref } from 'vue'; import { api } from '../../api'
+const tab=ref('通用规则'); const tabs=['通用规则','险种责任规则','适应症要点']; const showEditor=ref(false); const editingRule=ref(null)
+const form=ref({code:'',name:'',layer:2,model:'qwen3.6-plus',blocking:false,prompt:''})
+const rules=ref([{code:'1.1',name:'身份校验',layer:1,model:'qwen3.6-flash',version:'v1.0',blocking:true},{code:'1.2',name:'保险期间',layer:1,model:'qwen3.6-flash',version:'v1.0',blocking:true},{code:'2.1',name:'材料完整性',layer:1,model:'qwen3.6-flash',version:'v1.0',blocking:true},{code:'1.3.1',name:'特药匹配',layer:2,model:'qwen3.6-plus',version:'v1.0',blocking:false},{code:'1.4',name:'医院资质',layer:2,model:'qwen3.6-flash',version:'v1.0',blocking:false},{code:'3.1',name:'既往症判断',layer:2,model:'qwen3.6-plus',version:'v1.0',blocking:false},{code:'3.2',name:'赔付计算',layer:4,model:'qwen3.6-flash',version:'v1.0',blocking:false},{code:'4.1',name:'未成年人',layer:3,model:'qwen3.6-plus',version:'v1.0',blocking:false},{code:'4.2',name:'身故案件',layer:3,model:'qwen3.6-plus',version:'v1.0',blocking:false}])
+function editRule(r){editingRule.value=r;form.value={...r};showEditor.value=true}
+function saveRule(){const idx=rules.value.findIndex(r=>r.code===form.value.code);if(idx>=0){rules.value[idx]={...form.value,version:rules.value[idx].version}}else{rules.value.push({...form.value,version:'v1.0'})};showEditor.value=false;editingRule.value=null}
+async function publishRule(r){r.version='v'+ (parseFloat(r.version.slice(1))+0.1).toFixed(1);alert('已发布: '+r.name+' '+r.version)}
+function deleteRule(r){if(confirm('删除 '+r.name+'?')){rules.value=rules.value.filter(x=>x.code!==r.code)}}
+</script>
+<style scoped>
+.pg{padding:24px}.tabs{display:flex;gap:8px;margin-bottom:16px;align-items:center}.tabs button{padding:8px 16px;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent}.tabs button.active{border-bottom-color:#1a73e8;color:#1a73e8}.btn{padding:6px 16px;border:1px solid #d9d9d9;border-radius:4px;background:#fff;cursor:pointer}.btn.primary{background:#1a73e8;color:#fff;border:none}.del{color:#ff4d4f;background:none;border:none;cursor:pointer;margin-left:4px}.editor{padding:16px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px}.editor label{display:flex;flex-direction:column;font-size:12px;color:#666;gap:4px}.editor input,.editor select,.editor textarea{padding:6px;border:1px solid #d9d9d9;border-radius:4px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)}th,td{padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px}th{background:#fafafa}button{padding:4px 12px;border:1px solid #d9d9d9;border-radius:4px;background:#fff;cursor:pointer;margin-right:4px;font-size:12px}
+</style>
